@@ -9,10 +9,11 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 97d8188e3910f6c4582334c5ea377ec3, type: 3}
+  m_Script: {fileID: 974569662, guid: d16fdc8425813624281596df502e7c2c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  UIImagesOutputDir: Assets\Examples
-  UIFormOutputDir: Assets\Examples
+  UIImagesOutputDir: Assets\Plugins\PSD2UIForm\Examples
+  UIFormOutputDir: Assets
   UseUIFormOutputDir: 1
-  LastUIFormOutputDir: Assets\AAAGame\Prefabs\UI
+  CompressImage: 0
+  LastUIFormOutputDir: Assets
