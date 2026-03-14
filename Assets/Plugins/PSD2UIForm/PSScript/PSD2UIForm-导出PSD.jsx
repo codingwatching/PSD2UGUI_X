@@ -331,21 +331,24 @@ function getFileSizeKB(file) {
 function exportPSD(doc) {
     var originalName = doc.name;
     var baseName = originalName.replace(/\.psd$/i, "");
-    
-    // 选择保存路径
-    var savePath = Folder.selectDialog("选择PSD导出路径");
-    if (savePath == null) {
+
+    // 选择保存文件，默认文件名为 原文件名 + _UGUI.psd
+    var defaultFileName = baseName + CONFIG.EXPORT_SUFFIX + ".psd";
+    var defaultFolder = null;
+    try {
+        defaultFolder = doc.path;
+    } catch(e) {
+        defaultFolder = Folder.myDocuments;
+    }
+
+    var saveFile = new File(defaultFolder + "/" + defaultFileName);
+    saveFile = saveFile.saveDlg("选择PSD导出文件");
+    if (saveFile == null) {
         return null;
     }
 
-    // 生成带后缀的文件名
-    var saveFile = new File(savePath + "/" + baseName + CONFIG.EXPORT_SUFFIX + ".psd");
-    // 如果文件已存在，询问是否覆盖
-    if (saveFile.exists) {
-        var overwrite = confirm("文件 " + saveFile.name + " 已存在，是否覆盖？");
-        if (!overwrite) {
-            return null;
-        }
+    if (!/\.psd$/i.test(saveFile.name)) {
+        saveFile = new File(saveFile.fsName + ".psd");
     }
 
     // 保存选项
