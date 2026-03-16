@@ -35,14 +35,62 @@ function hasLayerEffect(layer) {
         var ref = new ActionReference();
         ref.putIdentifier(app.charIDToTypeID('Lyr '), layer.id);
         var desc = executeActionGet(ref);
-        
-        // ===== 1. 检查图层特效 (Layer Effects/Styles) =====
-        var keyLayerEffects = app.charIDToTypeID('Lefx');
-        if (desc.hasKey(keyLayerEffects)) {
-            var effectsDesc = desc.getObjectValue(keyLayerEffects);
-            
-            // 检查 master switch (整个效果列表是否被禁用)
-            // 有时候虽有 Lefx 键，但整体缩放或开关可能是关的，通常需要检查具体子项
+
+        function getBooleanIfPresent(targetDesc, keyID) {
+            try {
+                if (targetDesc.hasKey(keyID)) {
+                    return targetDesc.getBoolean(keyID);
+                }
+            } catch (ignored) {}
+            return null;
+        }
+
+        function getFirstBoolean(targetDesc, keyIDs) {
+            for (var idx = 0; idx < keyIDs.length; idx++) {
+                var value = getBooleanIfPresent(targetDesc, keyIDs[idx]);
+                if (value !== null) {
+                    return value;
+                }
+            }
+            return null;
+        }
+
+        function isEffectEntryEnabled(effectDesc) {
+            var enabled = getFirstBoolean(effectDesc, [
+                app.charIDToTypeID('enab'),
+                app.stringIDToTypeID('enabled')
+            ]);
+
+            if (enabled !== null) {
+                return enabled;
+            }
+
+            // 某些旧版 PS 的单个特效对象不返回 enabled，
+            // 此时交给外层总开关判断，不在这里误判为关闭。
+            return true;
+        }
+
+        function hasEnabledLayerStyles(layerDesc) {
+            var keyLayerEffects = app.charIDToTypeID('Lefx');
+            if (!layerDesc.hasKey(keyLayerEffects)) {
+                return false;
+            }
+
+            var keyLayerFXVisible = app.stringIDToTypeID('layerFXVisible');
+            var layerFXVisible = getBooleanIfPresent(layerDesc, keyLayerFXVisible);
+            if (layerFXVisible === false) {
+                return false;
+            }
+
+            var effectsDesc = layerDesc.getObjectValue(keyLayerEffects);
+
+            var effectsRootEnabled = getFirstBoolean(effectsDesc, [
+                app.charIDToTypeID('enab'),
+                app.stringIDToTypeID('enabled')
+            ]);
+            if (effectsRootEnabled === false) {
+                return false;
+            }
             
             // Photoshop 所有版本支持的10种图层特效
             var effectTypeIDs = [
@@ -61,35 +109,69 @@ function hasLayerEffect(layer) {
             for (var i = 0; i < effectTypeIDs.length; i++) {
                 var effectID = effectTypeIDs[i];
                 if (effectsDesc.hasKey(effectID)) {
-                    // 获取具体特效的对象
-                    var specificEffectDesc = effectsDesc.getObjectValue(effectID);
-                    
-                    // 关键修正: 检查 'enab' (Enabled) 属性
-                    // 很多时候特效存在于描述符中，但处于隐藏/关闭状态
-                    var keyEnabled = app.charIDToTypeID('enab');
-                    if (specificEffectDesc.hasKey(keyEnabled) && specificEffectDesc.getBoolean(keyEnabled)) {
-                        return true;
+                    try {
+                        var effectValueType = effectsDesc.getType(effectID);
+
+                        if (effectValueType === DescValueType.OBJECTTYPE) {
+                            if (isEffectEntryEnabled(effectsDesc.getObjectValue(effectID))) {
+                                return true;
+                            }
+                        } else if (effectValueType === DescValueType.LISTTYPE) {
+                            var effectList = effectsDesc.getList(effectID);
+                            for (var listIndex = 0; listIndex < effectList.count; listIndex++) {
+                                try {
+                                    if (effectList.getType(listIndex) === DescValueType.OBJECTTYPE &&
+                                        isEffectEntryEnabled(effectList.getObjectValue(listIndex))) {
+                                        return true;
+                                    }
+                                } catch (ignoredListItem) {}
+                            }
+                        }
+                    } catch (ignoredEffectType) {
+                        try {
+                            if (isEffectEntryEnabled(effectsDesc.getObjectValue(effectID))) {
+                                return true;
+                            }
+                        } catch (ignoredEffectObject) {}
                     }
                 }
             }
+
+            return false;
+        }
+        
+        // ===== 1. 检查图层特效 (Layer Effects/Styles) =====
+        if (hasEnabledLayerStyles(desc)) {
+            return true;
         }
         
         // ===== 2. 检查图层蒙版 (Layer Mask) =====
-        var keyUserMaskEnabled = app.charIDToTypeID('UsrM'); // User Mask Enabled
-        if (desc.hasKey(keyUserMaskEnabled)) {
-            if (desc.getBoolean(keyUserMaskEnabled)) {
-                return true;
-            }
+        // 旧版 PS 中 LayerSet 的 UsrM 兼容性不稳定，优先使用显式的 has/enabled 组合判断。
+        var hasUserMask = getBooleanIfPresent(desc, app.stringIDToTypeID('hasUserMask'));
+        var userMaskEnabled = getFirstBoolean(desc, [
+            app.stringIDToTypeID('userMaskEnabled'),
+            app.charIDToTypeID('UsrM')
+        ]);
+        if (hasUserMask === true && userMaskEnabled === true) {
+            return true;
+        }
+        if (hasUserMask === null && userMaskEnabled === true) {
+            // 兼容更老的描述符：没有 hasUserMask 时才退回使用 UsrM。
+            return true;
         }
         
         // ===== 3. 检查矢量蒙版 (Vector Mask) =====
+        var hasVectorMask = getBooleanIfPresent(desc, app.stringIDToTypeID('hasVectorMask'));
         var keyVectorMaskEnabled = app.stringIDToTypeID('vectorMaskEnabled');
-        if (desc.hasKey(keyVectorMaskEnabled)) {
-            if (desc.getBoolean(keyVectorMaskEnabled)) {
-                return true;
-            }
+        var vectorMaskEnabled = getBooleanIfPresent(desc, keyVectorMaskEnabled);
+        if (hasVectorMask === true && vectorMaskEnabled === true) {
+            return true;
         }
-        
+        if (hasVectorMask === null && vectorMaskEnabled === true) {
+            // 兼容缺少 hasVectorMask 字段的旧描述符。
+            return true;
+        }
+
         return false;
     } catch(e) {
         return false;
